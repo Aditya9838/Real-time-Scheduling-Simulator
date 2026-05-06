@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Scheduler Simulator | Standalone</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #6366f1;
+            --bg-main: #0f172a;
+            --bg-card: rgba(30, 41, 59, 0.7);
+            --border-color: rgba(255, 255, 255, 0.1);
+        }
+        body { font-family: 'Inter', sans-serif; background-color: var(--bg-main); color: white; }
+        .glass { background: var(--bg-card); backdrop-filter: blur(12px); border: 1px solid var(--border-color); border-radius: 16px; }
+        .timeline-cell { transition: all 0.3s; }
+        .timeline-cell:hover { filter: brightness(1.2); transform: scaleY(1.1); }
+        .missed { border: 2px solid #ef4444; box-shadow: 0 0 10px #ef4444; }
+        input, select { background: rgba(15, 23, 42, 0.5) !important; border: 1px solid var(--border-color) !important; color: white !important; }
+        .btn-primary { background: var(--primary); transition: all 0.2s; }
+        .btn-primary:hover { transform: translateY(-2px); opacity: 0.9; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // --- SCHEDULER LOGIC ---
+        const simulateScheduling = (tasks, algorithm, duration = 50) => {
+            const timeline = [];
+            const events = [];
+            const taskStates = tasks.map(task => ({
+                ...task,
+                remainingTime: 0,
+                nextReleaseTime: 0,
+                absoluteDeadline: 0,
+                isMissed: false
+            }));
+
+            for (let t = 0; t < duration; t++) {
+                taskStates.forEach(task => {
+                    if (task.remainingTime > 0 && t >= task.absoluteDeadline) {
+                        task.isMissed = true;
+                        events.push({ time: t, type: 'MISS', taskName: task.name });
+                    }
+                    if (t === task.nextReleaseTime) {
+                        if (task.remainingTime > 0) {
+                            task.isMissed = true;
+                            events.push({ time: t, type: 'MISS', taskName: task.name });
+                        }
+                        task.remainingTime = task.executionTime;
+                        task.absoluteDeadline = t + task.deadline;
+                        task.nextReleaseTime = t + task.period;
+                        events.push({ time: t, type: 'RELEASE', taskName: task.name });
+                    }
+                });
+
+                const readyTasks = taskStates.filter(task => task.remainingTime > 0);
+                let selectedTask = null;
+
+                if (readyTasks.length > 0) {
+                    if (algorithm === 'RMS') {
+                        selectedTask = readyTasks.reduce((prev, curr) => curr.period < prev.period ? curr : prev);
+                    } else {
+                        selectedTask = readyTasks.reduce((prev, curr) => curr.absoluteDeadline < prev.absoluteDeadline ? curr : prev);
+                    }
+                }
+
+                if (selectedTask) {
+                    timeline.push({ time: t, taskId: selectedTask.id, taskName: selectedTask.name, color: selectedTask.color, isMissed: selectedTask.isMissed });
+                    selectedTask.remainingTime--;
+                    if (selectedTask.remainingTime === 0) selectedTask.isMissed = false;
+                } else {
+                    timeline.push({ time: t, taskId: 'IDLE', taskName: 'IDLE', color: '#1e293b', isMissed: false });
+                }
+            }
+            return { timeline, events };
+        };
+
+        const SAMPLE_DATA = [
+            { id: 1, name: 'T1', executionTime: 2, period: 5, deadline: 5, color: '#6366f1' },
+            { id: 2, name: 'T2', executionTime: 2, period: 8, deadline: 8, color: '#f59e0b' },
+            { id: 3, name: 'T3', executionTime: 3, period: 12, deadline: 12, color: '#10b981' }
+        ];
+
+        // --- COMPONENTS ---
+        const App = () => {
+            const [tasks, setTasks] = useState([]);
+            const [algorithm, setAlgorithm] = useState('RMS');
+            const [duration, setDuration] = useState(50);
+            const [results, setResults] = useState(null);
+            const [newTask, setNewTask] = useState({ name: '', executionTime: 2, period: 5, deadline: 5 });
+
+            const addTask = () => {
+                const task = { ...newTask, id: Date.now(), color: `hsl(${Math.random() * 360}, 70%, 60%)` };
+                setTasks([...tasks, task]);
+            };
+
+            const run = () => {
+                if (tasks.length === 0) return;
+                setResults(simulateScheduling(tasks, algorithm, duration));
+            };
+
+            return (
+                <div className="max-w-6xl mx-auto">
+                    <header class="text-center mb-12">
+                        <h1 class="text-5xl font-extrabold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 to-purple-400">
+                            Real-Time Scheduler Simulator
+                        </h1>
+                        <p class="text-slate-400 text-lg">Interactive visualization of RMS and EDF algorithms.</p>
+                    </header>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        <div class="space-y-6">
+                            <div class="glass p-6">
+                                <h2 class="text-xl font-bold mb-4">Task Configuration</h2>
+                                <div class="space-y-3">
+                                    <input class="w-full p-2 rounded" placeholder="Task Name" value={newTask.name} onChange={e => setNewTask({...newTask, name: e.target.value})} />
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <div><label class="text-xs text-slate-400">Exec Time</label><input type="number" class="w-full p-2 rounded" value={newTask.executionTime} onChange={e => setNewTask({...newTask, executionTime: parseInt(e.target.value)})} /></div>
+                                        <div><label class="text-xs text-slate-400">Period</label><input type="number" class="w-full p-2 rounded" value={newTask.period} onChange={e => setNewTask({...newTask, period: parseInt(e.target.value)})} /></div>
+                                    </div>
+                                    <button onClick={addTask} class="w-full btn-primary p-2 rounded font-bold">Add Task</button>
+                                    <button onClick={() => setTasks(SAMPLE_DATA)} class="w-full border border-slate-700 p-2 rounded text-sm">Load Sample Data</button>
+                                </div>
+                            </div>
+
+                            <div class="glass p-6">
+                                <h2 class="text-xl font-bold mb-4">Simulation</h2>
+                                <select class="w-full p-2 rounded mb-4" value={algorithm} onChange={e => setAlgorithm(e.target.value)}>
+                                    <option value="RMS">RMS (Static Priority)</option>
+                                    <option value="EDF">EDF (Dynamic Priority)</option>
+                                </select>
+                                <button onClick={run} class="w-full btn-primary p-3 rounded font-bold text-lg">RUN SIMULATION</button>
+                            </div>
+                        </div>
+
+                        <div class="lg:col-span-2 space-y-6">
+                            {tasks.length > 0 && (
+                                <div class="glass p-6">
+                                    <h2 class="text-xl font-bold mb-4">Task Set</h2>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-left">
+                                            <thead><tr class="text-slate-400 border-b border-slate-800"><th>Task</th><th>C</th><th>T</th><th>D</th><th>U</th></tr></thead>
+                                            <tbody>
+                                                {tasks.map(t => (
+                                                    <tr key={t.id} class="border-b border-slate-800/50">
+                                                        <td style={{color: t.color}} class="font-bold py-2">{t.name}</td>
+                                                        <td>{t.executionTime}</td><td>{t.period}</td><td>{t.deadline}</td>
+                                                        <td>{(t.executionTime/t.period).toFixed(2)}</td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+
+                            {results && (
+                                <div class="glass p-6 overflow-hidden">
+                                    <h2 class="text-xl font-bold mb-6">Timeline Visualization</h2>
+                                    <div class="flex gap-1 overflow-x-auto pb-4">
+                                        {results.timeline.map((s, i) => (
+                                            <div key={i} class={`min-w-[20px] h-12 flex items-center justify-center text-[10px] rounded-sm timeline-cell ${s.isMissed ? 'missed' : ''}`} style={{backgroundColor: s.color}}>
+                                                {s.taskName !== 'IDLE' ? s.taskName[0] : ''}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div class="mt-6">
+                                        <h3 class="font-bold text-sm text-slate-400 mb-2">Event Log</h3>
+                                        <div class="max-h-40 overflow-y-auto space-y-1">
+                                            {results.events.map((e, i) => (
+                                                <div key={i} class="text-xs flex gap-4">
+                                                    <span class="text-indigo-400 font-mono">t={e.time}</span>
+                                                    <span class={e.type==='MISS' ? 'text-red-400' : 'text-green-400'}>{e.type}</span>
+                                                    <span>{e.taskName}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
